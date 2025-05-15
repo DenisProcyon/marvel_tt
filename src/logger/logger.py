@@ -27,9 +27,12 @@ class Logger:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
 
-        file_handler = logging.FileHandler(
-            Path(__file__).parent.parent.parent / f'logs/{self.logger_name}.log'
-        )
+        # Ensure logs directory exists one level outside src/
+        log_dir = Path(__file__).resolve().parents[2] / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f'{self.logger_name}.log'
+
+        file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
@@ -43,8 +46,6 @@ class Logger:
         self.logger.propagate = False
 
         self.log(f'Logger {self.logger_name} initialized', level="info")
-
-
 
     def log(self, message: str, level: str = None) -> None:
         if level is None:

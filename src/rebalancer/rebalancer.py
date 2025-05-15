@@ -157,7 +157,7 @@ class Rebalancer:
         equity_curve, invested_curve = [], []
 
         self._log(
-            f"Start back test: {dates[0].date()} ➜ {dates[-1].date()}"
+            f"Start back test: {dates[0].date()} - {dates[-1].date()}"
         )
         self._log(
             f"Universe size={len(self.prices.columns)}, "

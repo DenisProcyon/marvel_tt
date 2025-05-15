@@ -26,6 +26,7 @@ class CexWrapper:
             level="info"
         )
 
+        # Set up cache directory
         self.cache_dir = Path(__file__).parent.parent.parent / "data"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,6 +65,7 @@ class CexWrapper:
         symbol = f"{base.upper()}/{quote.upper()}"
         path = self._cache_path(symbol, timeframe)
 
+        # Check if cache exists
         if path.exists():
             data = pd.read_parquet(path)
             self.logger.log(message=f"Loaded {len(data)} rows from cache {path}", level="info")
