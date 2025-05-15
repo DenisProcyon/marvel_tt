@@ -10,17 +10,25 @@ from cex_wrapper.wrapper import CexWrapper
 from logger.logger import Logger
 
 class BaseStrategy:
+    """
+    Base class for all strategies
+    """
     def compute_target_usd(self, window: pd.DataFrame, px_today: pd.Series) -> pd.Series:
         raise NotImplementedError
 
-
 class TopNEqualDollarStrategy(BaseStrategy):
+    """
+    Regulat buy and hol dstrategy stated in the proposed task.
+    """
     def __init__(self, n_top: int = 5, usd_per_strat: float = 1_000) -> None:
         self.n_top = n_top
         self.usd_per_strat = usd_per_strat
 
     def compute_target_usd(self, window: pd.DataFrame, px_today: pd.Series) -> pd.Series:
+        # Calculate the performance of each asset in the window
         perf = (window.iloc[-1] / window.iloc[0] - 1).sort_values(ascending=False)
+
+        # Select the top N assets based on performance
         top = perf.head(self.n_top).index
         tgt = pd.Series(0.0, index=px_today.index)
         tgt.loc[top] = self.usd_per_strat
@@ -28,17 +36,25 @@ class TopNEqualDollarStrategy(BaseStrategy):
         return tgt
     
 class DynamicEWMAStrategy(BaseStrategy):
+        """
+        Dynamic strategy based on the Exponential Weighted Moving Average
+        """
         def __init__(self, n_top: int = 5, usd_per_strat: float = 1_000, span: int = 25) -> None:
             self.n_top = n_top
             self.usd_per_strat = usd_per_strat
             self.span = span
 
         def compute_target_usd(self, window: pd.DataFrame, px_today: pd.Series) -> pd.Series:
+            """
+            Calculate the target USD allocation based on the Exponential Weighted Moving Average
+            """
             ewma = window.ewm(span=self.span, adjust=False).mean().iloc[-1]
-
+            
+            # Calculate the deviation of price to the EWMA
             deviation = ((px_today - ewma) / ewma).abs()
             deviation = deviation.replace([np.inf, -np.inf], np.nan).dropna()
 
+            # Select the top N assets based on deviation
             top = deviation.sort_values(ascending=False).head(self.n_top).index
 
             tgt = pd.Series(0.0, index=px_today.index)
@@ -47,11 +63,17 @@ class DynamicEWMAStrategy(BaseStrategy):
             return tgt
 
 class CexDataLoader:
+    """
+    Data loader for CEX exchanges, implementation of CexWrapper class
+    """
     def __init__(self, exchange_name: str, timeframe: str = "1d") -> None:
         self.wrapper = CexWrapper(exchange_name=exchange_name)
         self.timeframe = timeframe
 
     def get_top_volume_symbols(self, n: int = 50) -> List[str]:
+        """
+        Getting symbols by top volume
+        """
         tickers = self.wrapper.exchange.fetch_tickers()
         df = (
             pd.DataFrame.from_dict(tickers, orient="index")
@@ -76,6 +98,9 @@ class CexDataLoader:
 
 @dataclass
 class BacktestResult:
+    """
+    Backtest result data class
+    """
     equity_curve: pd.Series
     invested_curve: pd.Series
     total_fee: float
@@ -91,6 +116,14 @@ class Rebalancer:
         rebalance_freq_days: int = 7,
         fee_rate: float = 0.001,
         logger: Optional[Logger] = None) -> None:
+        """
+        :param price_data: Dictionary of price dataframes for each symbol
+        :param strategy: Strategy to use for rebalancing
+        :param lookback_days: Number of days to look back for strategy
+        :param rebalance_freq_days: Frequency of rebalancing in days
+        :param fee_rate: Transaction fee rate
+        :param logger: Logger instance optional
+        """
 
         self.strategy = strategy
         self.lookback_days = lookback_days
@@ -104,10 +137,16 @@ class Rebalancer:
 
     @staticmethod
     def _build_price_matrix(price_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """
+        Build a price matrix from the price data dictionary
+        """
         closes = {s: d["close"] for s, d in price_data.items()}
         return pd.concat(closes, axis=1).sort_index().ffill()
 
     def run(self) -> BacktestResult:
+        """
+        Run the backtest
+        """
         dates = self.prices.index.normalize().unique()
         rebals = dates[self.lookback_days :: self.rebalance_freq_days]
 
@@ -130,11 +169,14 @@ class Rebalancer:
         for d in dates:
             px_today = self.prices.loc[d]
 
+            # If we have a position, update the cost basis
             if d in rebals:
+
                 window = self.prices.loc[
                     d - timedelta(days=self.lookback_days) : d - timedelta(days=1)
                 ]
 
+                # Calculate current alloc
                 pre_val = (qty * px_today).loc[qty > 0]
                 self._log(
                     "Before rebalance | Positions: "
@@ -148,6 +190,7 @@ class Rebalancer:
                 )
                 target_qty = (target_usd / px_today).fillna(0.0)
 
+                # Calculate the difference between target and current position
                 dq = target_qty - qty
                 selling, buying = dq.clip(upper=0).abs(), dq.clip(lower=0)
 
@@ -166,6 +209,7 @@ class Rebalancer:
                 net_cash = cash + sell_usd
                 need = max(0.0, buy_usd + fee_paid - net_cash)
 
+                # If we need more cash, we add it
                 if need:
                     cash += need
                     invested += need
@@ -174,6 +218,7 @@ class Rebalancer:
                 pos_val = (qty * px_today).loc[qty > 0]
                 pos_str = (", ".join(f"{s}: {qty[s]:.4f} ({pos_val[s]:,.2f}$)"for s in pos_val.index)or "Nothing yet")
 
+                # Log the rebalance
                 self._log(
                     f"{d.date()} | Rebalance\n"
                     f"  Buy   : {buy_usd:,.2f} $\n"
@@ -185,11 +230,13 @@ class Rebalancer:
                     f"  **Positions:** {pos_str}"
                 )
 
+            # Update the cost basis for the current position
             port_val = (qty * px_today).sum()
             equity = port_val + cash
             equity_curve.append({"datetime": d, "equity": equity})
             invested_curve.append({"datetime": d, "invested": invested})
 
+        # Finalize the backtest
         final_unrealized = (qty * self.prices.iloc[-1]) - cost_basis_usd
         total_pnl = realized_pnl + final_unrealized
 
@@ -200,8 +247,10 @@ class Rebalancer:
             f"Turnover: {traded_volume:,.2f} $"
         )
 
+        # Create the final equity and invested curves
         eq_s = pd.DataFrame(equity_curve).set_index("datetime")["equity"]
         inv_s = pd.DataFrame(invested_curve).set_index("datetime")["invested"]
+
         return BacktestResult(eq_s, inv_s, total_fee, total_pnl, traded_volume)
 
     @staticmethod
@@ -277,6 +326,9 @@ class Rebalancer:
 
     @staticmethod
     def report_top_movers(total_pnl: pd.Series, traded_volume: float, top_n: int = 5) -> None:
+        """
+        Report the top movers in the portfolio
+        """
         top_gain = total_pnl.sort_values(ascending=False).head(top_n)
         top_loss = total_pnl.sort_values().head(top_n)
 
@@ -287,4 +339,3 @@ class Rebalancer:
         print(top_loss.apply(lambda x: f"{x:,.2f}"))
 
         print(f"\nTraded volume, USD: {traded_volume:,.2f}")
-        
