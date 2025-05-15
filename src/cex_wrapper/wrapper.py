@@ -19,7 +19,7 @@ class CexWrapper:
         """
         self.exchange = self._get_exchange(exchange_name, **exchange_kwargs)
 
-        self.logger = Logger(logger_name=f'cex_{exchange_name}', console_stream=True)
+        self.logger = Logger(logger_name=f'cex_{exchange_name}', console_stream=False)
 
         self.logger.log(
             message=f'Wrapper for {self.exchange.name} initialized',
